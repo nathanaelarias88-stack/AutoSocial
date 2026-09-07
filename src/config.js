@@ -58,9 +58,25 @@ const config = {
     projectRoot,
     process.env.YOUTUBE_PROFILE_DIR || ".profile-youtube"
   ),
-  cronExpression: process.env.CRON_EXPRESSION || "0 */2 * * *",
-  instagramCronExpression: process.env.INSTAGRAM_CRON_EXPRESSION || "0 */2 * * *",
-  youtubeCronExpression: process.env.YOUTUBE_CRON_EXPRESSION || "0 */2 * * *",
+  cronExpression: process.env.CRON_EXPRESSION || "0 */6 * * *",
+  instagramCronExpression: process.env.INSTAGRAM_CRON_EXPRESSION || "0 */6 * * *",
+  youtubeCronExpression: process.env.YOUTUBE_CRON_EXPRESSION || "0 */6 * * *",
+  requireReviewApproval: getBoolean(process.env.REQUIRE_REVIEW_APPROVAL, true),
+  sessionStaleDays: Number(process.env.SESSION_STALE_DAYS || 30),
+  postLimits: {
+    tiktok: {
+      dailyCap: Number(process.env.TIKTOK_DAILY_CAP || 4),
+      cooldownMinutes: Number(process.env.TIKTOK_COOLDOWN_MINUTES || 180),
+    },
+    instagram: {
+      dailyCap: Number(process.env.INSTAGRAM_DAILY_CAP || 4),
+      cooldownMinutes: Number(process.env.INSTAGRAM_COOLDOWN_MINUTES || 180),
+    },
+    youtube: {
+      dailyCap: Number(process.env.YOUTUBE_DAILY_CAP || 3),
+      cooldownMinutes: Number(process.env.YOUTUBE_COOLDOWN_MINUTES || 240),
+    },
+  },
   timezone: process.env.TZ || "UTC",
   browserLocale: process.env.BROWSER_LOCALE || "en-US",
   headless: getBoolean(process.env.HEADLESS, false),

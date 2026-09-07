@@ -45,6 +45,9 @@ local control plane.
 - Post queued videos to TikTok, Instagram, and YouTube.
 - Persist Playwright login sessions under `.profiles/<account>/<platform>`.
 - Schedule posts with cron expressions, daily times, or instant-post mode.
+- Review queue with approve / reject / approve-and-post-now before auto-publish.
+- Per-platform daily caps and cooldowns (safer defaults than posting every 2 hours).
+- Reusable caption templates and campaign presets (launch, demo, update, testimonial).
 - Download recent TikTok videos with yt-dlp and fan them out into queues.
 - Scan/download TikTok profiles into `autodownload/profile_downloads`.
 - Run FFmpeg-based video uniquification from the dashboard or CLI, with an
@@ -56,10 +59,11 @@ local control plane.
 - npm
 - Playwright Chromium
 - FFmpeg and ffprobe in `PATH`
-- Optional: `yt-dlp.exe` in `autodownload/` for downloader features
+- Optional: yt-dlp for downloader features (`autodownload/yt-dlp.exe` on Windows,
+  or `yt-dlp` on `PATH` for Mac/Linux)
 
-Windows is the primary target for the bundled `yt-dlp.exe` workflow, but the
-dashboard and core Node services are ordinary Node.js.
+Windows commonly uses the local `autodownload/yt-dlp.exe` binary. Mac/Linux can
+use a PATH install. The dashboard and core Node services are ordinary Node.js.
 
 ## Quick Start
 
@@ -186,7 +190,7 @@ Notes:
 - `login`, `post`, and `daemon` are TikTok CLI flows.
 - Instagram and YouTube posting are managed through the dashboard.
 - `uniquify` and `video-info` require FFmpeg and ffprobe.
-- `autodownload` requires yt-dlp.
+- `autodownload` requires yt-dlp (`autodownload/yt-dlp.exe` or PATH).
 
 ## Development
 

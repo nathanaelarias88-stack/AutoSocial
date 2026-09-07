@@ -4,6 +4,9 @@ const path = require("path");
 const cron = require("node-cron");
 const { config } = require("./config");
 const { postNextFromQueue } = require("./post-service");
+const { checkPrePostGuards } = require("./daemon-guards");
+const { recordPost, getRateLimitStatus } = require("./post-rate-limit");
+const { getReviewStatus } = require("./review-queue");
 
 function nowIso() {
   return new Date().toISOString();
@@ -171,6 +174,16 @@ class DaemonController {
     this.log(`Run triggered by ${source}.`);
 
     try {
+      const guard = await checkPrePostGuards({
+        platform: "tiktok",
+        accountId: this.accountId,
+      });
+      if (!guard.ok) {
+        this.lastResult = guard;
+        this.log(guard.reason, "error");
+        return guard;
+      }
+
       const result = await postNextFromQueue({
         source,
         queueDir: this.queueDir,
@@ -183,6 +196,7 @@ class DaemonController {
       if (result.skipped) {
         this.log(result.reason);
       } else if (result.ok) {
+        await recordPost("tiktok", this.accountId);
         this.log(`Posted successfully: ${result.movedVideo}`);
       } else {
         this.log(`Post failed: ${result.error}`, "error");
@@ -348,7 +362,13 @@ class DaemonController {
         const ext = path.extname(entry.name);
         const base = entry.name.slice(0, -ext.length);
         const hasCaption = pendingEntries.some(e => e.isFile() && (e.name === `${base}.description` || e.name === `${base}.txt`));
-        return { name: entry.name, hasCaption };
+        const videoPath = path.join(this.queueDir, entry.name);
+        return {
+          name: entry.name,
+          hasCaption,
+          reviewStatus: getReviewStatus(videoPath),
+          videoPath,
+        };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -376,11 +396,60 @@ class DaemonController {
       defaultSoundQuery: config.defaultSoundQuery,
       randomQueueOrder: config.randomQueueOrder,
       accountId: this.accountId,
+      requireReviewApproval: config.requireReviewApproval,
+      rateLimit: getRateLimitStatus("tiktok", this.accountId),
       queue,
       lastRunAt: this.lastRunAt,
       lastResult: this.lastResult,
       logs: this.logs,
     };
+  }
+
+  async approveAndPostNow(videoPath) {
+    const { approveVideo } = require("./review-queue");
+    await approveVideo(videoPath, { platform: "tiktok", accountId: this.accountId });
+    if (this.isPosting) {
+      return { ok: false, skipped: true, reason: "A post is already in progress." };
+    }
+    this.isPosting = true;
+    this.lastRunAt = nowIso();
+    this.log(`Approve-and-post-now for ${path.basename(videoPath)}.`);
+    try {
+      const guard = await checkPrePostGuards({
+        platform: "tiktok",
+        accountId: this.accountId,
+      });
+      if (!guard.ok) {
+        this.lastResult = guard;
+        this.log(guard.reason, "error");
+        return guard;
+      }
+      const result = await postNextFromQueue({
+        source: "approve-and-post-now",
+        queueDir: this.queueDir,
+        postedDir: this.postedDir,
+        failedDir: this.failedDir,
+        accountId: this.accountId,
+        videoPath,
+      });
+      this.lastResult = result;
+      if (result.skipped) {
+        this.log(result.reason);
+      } else if (result.ok) {
+        await recordPost("tiktok", this.accountId);
+        this.log(`Posted successfully: ${result.movedVideo}`);
+      } else {
+        this.log(`Post failed: ${result.error}`, "error");
+      }
+      return result;
+    } catch (error) {
+      const failedResult = { ok: false, error: error.message || "Approve-and-post failed" };
+      this.lastResult = failedResult;
+      this.log(`Post failed: ${failedResult.error}`, "error");
+      return failedResult;
+    } finally {
+      this.isPosting = false;
+    }
   }
 }
 

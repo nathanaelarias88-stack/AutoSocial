@@ -11,6 +11,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { config } = require("./config");
 const { enrichRecentSlideshowDownloads } = require("./tiktok-slideshow-downloader");
+const { resolveYtDlp } = require("./yt-dlp-resolver");
 
 function nowIso() {
     return new Date().toISOString();
@@ -26,7 +27,7 @@ class ProfileDownloadController {
         this.logs = [];
 
         this.baseDir = path.resolve(config.projectRoot, "autodownload");
-        this.ytDlp = path.join(this.baseDir, "yt-dlp.exe");
+        this.ytDlp = null;
         this.downloadsDir = path.join(this.baseDir, "profile_downloads");
 
         ensureDir(this.downloadsDir);
@@ -111,6 +112,14 @@ class ProfileDownloadController {
             dlArgs.push(url);
 
             this.log(`Checking ${url} for videos matching criteria...`);
+
+            const resolved = resolveYtDlp(config.projectRoot);
+            if (!resolved.found) {
+                this.running = false;
+                this.log(resolved.detail, "error");
+                return;
+            }
+            this.ytDlp = resolved.command;
 
             execFile(this.ytDlp, dlArgs, { timeout: 300_000 }, async (err, stdout, stderr) => {
                 if (stdout) {

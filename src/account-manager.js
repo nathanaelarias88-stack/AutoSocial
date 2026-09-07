@@ -170,7 +170,7 @@ async function getPlatformProfileDir(platform, accountId) {
   return path.resolve(config.projectRoot, ".profiles", acctId, platform);
 }
 
-async function hasSavedPlatformSession(platform, accountId) {
+async function findPlatformCookieFile(platform, accountId) {
   const profileDir = await getPlatformProfileDir(platform, accountId);
   const cookieCandidates = [
     path.resolve(profileDir, "Default", "Cookies"),
@@ -182,14 +182,77 @@ async function hasSavedPlatformSession(platform, accountId) {
     try {
       const stat = await fs.stat(filePath);
       if (stat.isFile() && stat.size > 0) {
-        return true;
+        return { profileDir, cookiePath: filePath, mtimeMs: stat.mtimeMs, size: stat.size };
       }
     } catch {
       // continue
     }
   }
 
-  return false;
+  return { profileDir, cookiePath: null, mtimeMs: null, size: 0 };
+}
+
+async function hasSavedPlatformSession(platform, accountId) {
+  const found = await findPlatformCookieFile(platform, accountId);
+  return Boolean(found.cookiePath);
+}
+
+/**
+ * Maintainable session health check based on Playwright profile cookie files.
+ * - missing: no cookie DB found
+ * - stale: cookie DB older than SESSION_STALE_DAYS (default 30)
+ * - ok: recent non-empty cookie DB present
+ */
+async function getPlatformSessionHealth(platform, accountId) {
+  const found = await findPlatformCookieFile(platform, accountId);
+  if (!found.cookiePath) {
+    return {
+      platform,
+      accountId: accountId || (await getActiveAccount()).id,
+      healthy: false,
+      status: "missing",
+      saved: false,
+      profileDir: found.profileDir,
+      cookiePath: null,
+      detail: "No saved Playwright session cookies found.",
+      action: "Open Accounts and start a login session for this platform.",
+    };
+  }
+
+  const staleDays = Number(config.sessionStaleDays || process.env.SESSION_STALE_DAYS || 30);
+  const ageMs = Date.now() - found.mtimeMs;
+  const staleMs = Math.max(1, staleDays) * 24 * 60 * 60 * 1000;
+  const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+
+  if (ageMs > staleMs) {
+    return {
+      platform,
+      accountId: accountId || (await getActiveAccount()).id,
+      healthy: false,
+      status: "stale",
+      saved: true,
+      profileDir: found.profileDir,
+      cookiePath: found.cookiePath,
+      ageDays,
+      staleDays,
+      detail: `Session cookies look stale (~${ageDays} day(s) old; threshold ${staleDays}d).`,
+      action: "Re-open Accounts and refresh the login session.",
+    };
+  }
+
+  return {
+    platform,
+    accountId: accountId || (await getActiveAccount()).id,
+    healthy: true,
+    status: "ok",
+    saved: true,
+    profileDir: found.profileDir,
+    cookiePath: found.cookiePath,
+    ageDays,
+    staleDays,
+    detail: "Saved browser session found.",
+    action: "Session looks healthy.",
+  };
 }
 
 module.exports = {
@@ -202,5 +265,7 @@ module.exports = {
   ensureAccountDirs,
   getPlatformProfileDir,
   hasSavedPlatformSession,
+  getPlatformSessionHealth,
+  findPlatformCookieFile,
   PLATFORMS,
 };

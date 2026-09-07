@@ -31,12 +31,21 @@ features are affected.
 
 ## 2. Add yt-dlp for Downloader Features
 
-Download the latest Windows binary from the yt-dlp releases page and place it
-here:
+yt-dlp is resolved in this order:
+
+1. `autodownload/yt-dlp.exe` (Windows binary)
+2. `autodownload/yt-dlp` (local non-.exe binary)
+3. `yt-dlp` on `PATH` (typical for Mac/Linux package installs)
+
+Windows: download the latest Windows binary from the yt-dlp releases page and
+place it here:
 
 ```text
 autodownload/yt-dlp.exe
 ```
+
+Mac/Linux: install `yt-dlp` with your package manager (or pip) so it is on
+`PATH`. The doctor and Setup health page will detect either option.
 
 You can skip this if you do not use auto-download or profile-download features.
 
@@ -51,6 +60,14 @@ Important settings:
 - `TZ`
 - `BROWSER_LOCALE`
 - `CRON_EXPRESSION`, `INSTAGRAM_CRON_EXPRESSION`, `YOUTUBE_CRON_EXPRESSION`
+  (defaults are every 6 hours; safer than every 2 hours)
+- `REQUIRE_REVIEW_APPROVAL` (default true; scheduled posts need review approval)
+- Per-platform daily caps / cooldowns:
+  `TIKTOK_DAILY_CAP`, `TIKTOK_COOLDOWN_MINUTES`,
+  `INSTAGRAM_DAILY_CAP`, `INSTAGRAM_COOLDOWN_MINUTES`,
+  `YOUTUBE_DAILY_CAP`, `YOUTUBE_COOLDOWN_MINUTES`
+  (defaults: TikTok/Instagram 4/day with 180m cooldown; YouTube 3/day with 240m)
+- `SESSION_STALE_DAYS` (cookie age treated as stale; default 30)
 - `DEFAULT_CAPTION`
 - `WATCH_CHANNEL`, `WATCH_INTERVAL`, `WATCH_MAX_VIDEOS`, `WATCH_MIN_VIEWS`
 - `AUTO_POST_PLATFORMS`
@@ -230,7 +247,7 @@ npm run autodownload
 
 - `npm run doctor` fails for FFmpeg: install FFmpeg and add it to PATH.
 - `Playwright Chromium missing`: run `npx playwright install chromium`.
-- `yt-dlp missing`: add `autodownload/yt-dlp.exe` or skip downloader features.
+- `yt-dlp missing`: add `autodownload/yt-dlp.exe`, install `yt-dlp` on PATH, or skip downloader features.
 - `No session found`: open the dashboard and log in for that platform.
 - Upload opens but does not finish: inspect `last-*.png` and dashboard logs.
 - Stale debug screenshots/logs: run `npm run clean:debug`.

@@ -76,6 +76,14 @@
         </button>
 
         <div class="nav-label">Management</div>
+        <button class="nav-item" data-view="review">
+          <i class="ph ph-checks"></i>
+          <span>Review Queue</span>
+        </button>
+        <button class="nav-item" data-view="templates">
+          <i class="ph ph-text-aa"></i>
+          <span>Templates</span>
+        </button>
         <button class="nav-item" data-view="setup">
           <i class="ph ph-list-checks"></i>
           <span>Setup</span>
@@ -694,6 +702,138 @@
             <button id="defaultCaptionSaveBtn" class="control-btn-small primary" style="margin-top:8px;">
               <i class="ph ph-floppy-disk"></i> Save Caption
             </button>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Review Queue</div>
+            <p style="color:var(--text-muted); font-size:13px; margin-bottom:12px;">
+              When enabled, scheduled and auto-post paths only publish approved videos.
+            </p>
+            <label class="toggle-row" style="display:flex; align-items:center; gap:10px;">
+              <input type="checkbox" id="requireReviewToggle" />
+              <span>Require review approval before auto-post</span>
+            </label>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Daily Caps and Cooldowns</div>
+            <p style="color:var(--text-muted); font-size:13px; margin-bottom:12px;">
+              Defaults are safer than posting every 2 hours. Caps are per platform per local day;
+              cooldowns are minimum minutes between successful posts.
+            </p>
+            <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px;">
+              <div class="form-group">
+                <label>TikTok daily cap</label>
+                <input id="tiktokDailyCapInput" class="control-input" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>TikTok cooldown (min)</label>
+                <input id="tiktokCooldownInput" class="control-input" type="number" min="0" />
+              </div>
+              <div class="form-group">
+                <label>Instagram daily cap</label>
+                <input id="instagramDailyCapInput" class="control-input" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Instagram cooldown (min)</label>
+                <input id="instagramCooldownInput" class="control-input" type="number" min="0" />
+              </div>
+              <div class="form-group">
+                <label>YouTube daily cap</label>
+                <input id="youtubeDailyCapInput" class="control-input" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>YouTube cooldown (min)</label>
+                <input id="youtubeCooldownInput" class="control-input" type="number" min="0" />
+              </div>
+            </div>
+            <button id="rateLimitSaveBtn" class="control-btn-small primary" style="margin-top:12px;">
+              <i class="ph ph-floppy-disk"></i> Save Caps
+            </button>
+            <div id="rateLimitStatus" style="margin-top:12px; color:var(--text-muted); font-size:12px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Review Queue -->
+      <section id="view-review" class="view-section">
+        <header class="view-header">
+          <div>
+            <h2>Review Queue</h2>
+            <span class="view-subtitle">Approve videos before scheduled or auto-post can publish them.</span>
+          </div>
+          <button id="reviewRefreshBtn" class="control-btn-small"><i class="ph ph-arrows-clockwise"></i> Refresh</button>
+        </header>
+        <div class="stats-cards" style="margin-bottom:16px;">
+          <div class="stat-card">
+            <div class="stat-value" id="reviewPendingCount">0</div>
+            <div class="stat-label">Pending Review</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="reviewApprovedCount">0</div>
+            <div class="stat-label">Approved</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Videos</div>
+          <div id="reviewQueueList" class="queue-list">
+            <div style="text-align:center; padding:20px; color:#666;">Loading review queue...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Templates -->
+      <section id="view-templates" class="view-section">
+        <header class="view-header">
+          <div>
+            <h2>Caption Templates</h2>
+            <span class="view-subtitle">Reusable captions and campaign presets for launches, demos, updates, and more.</span>
+          </div>
+          <button id="templatesRefreshBtn" class="control-btn-small"><i class="ph ph-arrows-clockwise"></i> Refresh</button>
+        </header>
+        <div class="settings-grid">
+          <div class="card">
+            <div class="card-title">Edit / Create Template</div>
+            <div class="form-group">
+              <label>Template ID</label>
+              <input id="templateIdInput" class="control-input" placeholder="my-custom-template" />
+            </div>
+            <div class="form-group">
+              <label>Name</label>
+              <input id="templateNameInput" class="control-input" placeholder="My template" />
+            </div>
+            <div class="form-group">
+              <label>Campaign</label>
+              <select id="templateCampaignInput" class="control-input">
+                <option value="product-launch">product-launch</option>
+                <option value="demo">demo</option>
+                <option value="update">update</option>
+                <option value="testimonial">testimonial</option>
+                <option value="build-in-public">build-in-public</option>
+                <option value="custom">custom</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Caption body</label>
+              <textarea id="templateBodyInput" class="control-input" rows="5" placeholder="Caption text..."></textarea>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button id="templateSaveBtn" class="control-btn-small primary"><i class="ph ph-floppy-disk"></i> Save Template</button>
+              <button id="templateDeleteBtn" class="control-btn-small danger"><i class="ph ph-trash"></i> Delete</button>
+            </div>
+            <div class="form-group" style="margin-top:16px;">
+              <label>Default template for active account</label>
+              <select id="accountDefaultTemplateSelect" class="control-input"></select>
+            </div>
+            <button id="accountDefaultTemplateSaveBtn" class="control-btn-small primary" style="margin-top:8px;">
+              <i class="ph ph-floppy-disk"></i> Save Account Default
+            </button>
+          </div>
+          <div class="card">
+            <div class="card-title">Available Templates</div>
+            <div id="templatesList" class="queue-list">
+              <div style="text-align:center; padding:20px; color:#666;">Loading templates...</div>
+            </div>
           </div>
         </div>
       </section>
