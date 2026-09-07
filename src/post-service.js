@@ -1,9 +1,11 @@
 const fs = require("fs/promises");
 const path = require("path");
 const { config } = require("./config");
-const { getNextQueuedItem, getCaptionPaths } = require("./queue");
+const { getNextQueuedItem, getCaptionPaths, listQueueVideos } = require("./queue");
 const { uploadVideo } = require("./tiktok-uploader");
 const { ensureDirectories, fileExists, moveWithTimestamp } = require("./fs-utils");
+const { clearReviewEntry, isApproved } = require("./review-queue");
+const { getTemplateBodyForAccount } = require("./caption-templates");
 
 async function moveCaptionsIfExists(captionPaths, targetDir) {
   const moved = [];
@@ -25,17 +27,29 @@ async function moveFileSafely(sourcePath, targetDir, label) {
   }
 }
 
+async function resolveCaption(videoPath, caption, accountId) {
+  const provided = String(caption || "").trim();
+  if (provided) return provided;
+  if (accountId) {
+    const templateBody = await getTemplateBodyForAccount(accountId);
+    if (templateBody) return templateBody;
+  }
+  return config.defaultCaption || "";
+}
+
 async function postSingleVideo({ videoPath, caption, source, postedDir, failedDir, accountId }) {
   const posted = postedDir || config.postedDir;
   const failed = failedDir || config.failedDir;
   await ensureDirectories([posted, failed]);
 
-  const result = await uploadVideo({ videoPath, caption, source, accountId });
+  const finalCaption = await resolveCaption(videoPath, caption, accountId);
+  const result = await uploadVideo({ videoPath, caption: finalCaption, source, accountId });
   const captionPaths = getCaptionPaths(videoPath);
 
   if (result.ok) {
     const movedVideo = await moveFileSafely(videoPath, posted, "posted video");
     const movedCaption = await moveCaptionsIfExists(captionPaths, posted);
+    await clearReviewEntry(videoPath);
     if (!movedVideo) {
       return {
         ok: false,
@@ -48,6 +62,7 @@ async function postSingleVideo({ videoPath, caption, source, postedDir, failedDi
 
   const movedVideo = await moveFileSafely(videoPath, failed, "failed video");
   const movedCaption = await moveCaptionsIfExists(captionPaths, failed);
+  await clearReviewEntry(videoPath);
   return {
     ok: false,
     movedVideo,
@@ -57,15 +72,49 @@ async function postSingleVideo({ videoPath, caption, source, postedDir, failedDi
   };
 }
 
-async function postNextFromQueue({ source, queueDir, postedDir, failedDir, accountId } = {}) {
+async function emptyQueueReason(queueDir) {
+  const all = await listQueueVideos(queueDir);
+  if (!all.length) {
+    return "Queue is empty.";
+  }
+  if (config.requireReviewApproval) {
+    const unapproved = all.filter((videoPath) => !isApproved(videoPath));
+    if (unapproved.length) {
+      return `No approved videos in queue (${unapproved.length} awaiting review).`;
+    }
+  }
+  return "Queue is empty.";
+}
+
+async function postNextFromQueue({ source, queueDir, postedDir, failedDir, accountId, videoPath } = {}) {
   const queue = queueDir || config.queueDir;
   const posted = postedDir || config.postedDir;
   const failed = failedDir || config.failedDir;
   await ensureDirectories([queue, posted, failed]);
 
+  if (videoPath) {
+    const resolved = path.resolve(videoPath);
+    const captionPaths = getCaptionPaths(resolved);
+    let caption = "";
+    for (const cp of captionPaths) {
+      try {
+        caption = (await require("fs/promises").readFile(cp, "utf8")).trim();
+        if (caption) break;
+      } catch {}
+    }
+    return postSingleVideo({
+      videoPath: resolved,
+      caption,
+      source,
+      postedDir: posted,
+      failedDir: failed,
+      accountId,
+    });
+  }
+
   const nextItem = await getNextQueuedItem(queue);
   if (!nextItem) {
-    return { ok: true, skipped: true, reason: "Queue is empty." };
+    return { ok: true, skipped: true, reason: await emptyQueueReason(queue) };
   }
 
   return postSingleVideo({ ...nextItem, source, postedDir: posted, failedDir: failed, accountId });
@@ -83,4 +132,5 @@ async function postFromManualInput(videoPath, caption) {
 module.exports = {
   postNextFromQueue,
   postFromManualInput,
+  postSingleVideo,
 };

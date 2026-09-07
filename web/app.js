@@ -186,6 +186,29 @@ const UI = {
     adLogsContainer: document.getElementById("adLogsContainer"),
     defaultCaptionInput: document.getElementById("defaultCaptionInput"),
     defaultCaptionSaveBtn: document.getElementById("defaultCaptionSaveBtn"),
+    requireReviewToggle: document.getElementById("requireReviewToggle"),
+    tiktokDailyCapInput: document.getElementById("tiktokDailyCapInput"),
+    tiktokCooldownInput: document.getElementById("tiktokCooldownInput"),
+    instagramDailyCapInput: document.getElementById("instagramDailyCapInput"),
+    instagramCooldownInput: document.getElementById("instagramCooldownInput"),
+    youtubeDailyCapInput: document.getElementById("youtubeDailyCapInput"),
+    youtubeCooldownInput: document.getElementById("youtubeCooldownInput"),
+    rateLimitSaveBtn: document.getElementById("rateLimitSaveBtn"),
+    rateLimitStatus: document.getElementById("rateLimitStatus"),
+    reviewRefreshBtn: document.getElementById("reviewRefreshBtn"),
+    reviewQueueList: document.getElementById("reviewQueueList"),
+    reviewPendingCount: document.getElementById("reviewPendingCount"),
+    reviewApprovedCount: document.getElementById("reviewApprovedCount"),
+    templatesRefreshBtn: document.getElementById("templatesRefreshBtn"),
+    templatesList: document.getElementById("templatesList"),
+    templateIdInput: document.getElementById("templateIdInput"),
+    templateNameInput: document.getElementById("templateNameInput"),
+    templateCampaignInput: document.getElementById("templateCampaignInput"),
+    templateBodyInput: document.getElementById("templateBodyInput"),
+    templateSaveBtn: document.getElementById("templateSaveBtn"),
+    templateDeleteBtn: document.getElementById("templateDeleteBtn"),
+    accountDefaultTemplateSelect: document.getElementById("accountDefaultTemplateSelect"),
+    accountDefaultTemplateSaveBtn: document.getElementById("accountDefaultTemplateSaveBtn"),
 
     // Profile Downloader
     pdChannel: document.getElementById("pdChannel"),
@@ -483,6 +506,55 @@ const UI = {
       );
     }
 
+    if (this.els.requireReviewToggle) {
+      this.els.requireReviewToggle.addEventListener("change", async (e) => {
+        try {
+          const result = await API.post("/api/settings/save", {
+            payload: { REQUIRE_REVIEW_APPROVAL: e.target.checked },
+          });
+          if (result?.ok === false && result?.error) throw new Error(result.error);
+          this.refresh();
+          this.refreshReviewQueue();
+        } catch (err) {
+          alert(`Could not update review setting: ${err.message}`);
+          e.target.checked = !e.target.checked;
+        }
+      });
+    }
+
+    if (this.els.rateLimitSaveBtn) {
+      this.els.rateLimitSaveBtn.addEventListener("click", () => this.handleSaveRateLimits());
+    }
+    if (this.els.reviewRefreshBtn) {
+      this.els.reviewRefreshBtn.addEventListener("click", () => this.refreshReviewQueue());
+    }
+    if (this.els.reviewQueueList) {
+      this.els.reviewQueueList.addEventListener("click", (event) => this.handleReviewActionClick(event));
+    }
+    if (this.els.templatesRefreshBtn) {
+      this.els.templatesRefreshBtn.addEventListener("click", () => this.refreshTemplates());
+    }
+    if (this.els.templateSaveBtn) {
+      this.els.templateSaveBtn.addEventListener("click", () => this.handleTemplateSave());
+    }
+    if (this.els.templateDeleteBtn) {
+      this.els.templateDeleteBtn.addEventListener("click", () => this.handleTemplateDelete());
+    }
+    if (this.els.accountDefaultTemplateSaveBtn) {
+      this.els.accountDefaultTemplateSaveBtn.addEventListener("click", () =>
+        this.handleAccountDefaultTemplateSave()
+      );
+    }
+    if (this.els.templatesList) {
+      this.els.templatesList.addEventListener("click", (event) => this.handleTemplatePickClick(event));
+    }
+
+    document.addEventListener("autosocial:viewchange", (event) => {
+      if (event.detail?.viewName === "review") this.refreshReviewQueue();
+      if (event.detail?.viewName === "templates") this.refreshTemplates();
+      if (event.detail?.viewName === "settings") this.refreshSettingsPanel();
+    });
+
     // Profile Downloader Listeners
     if (this.els.pdStartBtn) {
       this.els.pdStartBtn.addEventListener("click", () => this.handleProfileDownloadStart(false));
@@ -649,14 +721,17 @@ const UI = {
     if (this.els.setupSessionsList) {
       this.els.setupSessionsList.innerHTML = (health.sessions || [])
         .map((session) => {
-          const meta = this.statusMeta(session.saved ? "ok" : "warn");
+          const statusKey = session.status === "ok" ? "ok" : "warn";
+          const meta = this.statusMeta(statusKey);
+          const detail = session.detail || (session.saved ? "Saved session found" : "No saved session yet");
           return `
             <div class="setup-check-item ${meta.className}">
               <div class="setup-check-icon"><i class="ph ${meta.icon}"></i></div>
               <div class="setup-check-body">
                 <div class="setup-check-title">${escapeHtml(session.label)}</div>
-                <div class="setup-check-detail">${escapeHtml(session.saved ? "Saved session found" : "No saved session yet")}</div>
-                <div class="setup-path">${escapeHtml(session.profileDir)}</div>
+                <div class="setup-check-detail">${escapeHtml(detail)}</div>
+                <div class="setup-path">${escapeHtml(session.profileDir || "")}</div>
+                <div class="setup-check-detail">${escapeHtml(session.action || "")}</div>
               </div>
             </div>
           `;
@@ -1267,6 +1342,7 @@ const UI = {
     } else {
       this.els.brandSelect.value = activeAccountId;
     }
+    this.activeAccountId = this.els.brandSelect.value || activeAccountId;
   },
 
   renderOverview(overviewData) {
@@ -1509,6 +1585,9 @@ const UI = {
         .map((video) => {
           const videoName = typeof video === "string" ? video : video.name;
           const hasCaption = typeof video === "object" && video.hasCaption;
+          const reviewStatus = typeof video === "object" ? (video.reviewStatus || "pending_review") : "pending_review";
+          const reviewLabel = reviewStatus === "approved" ? "Approved" : reviewStatus === "rejected" ? "Rejected" : "Needs review";
+          const reviewClass = reviewStatus === "approved" ? "success" : "active";
           return `
       <div class="queue-item">
         <div style="display:flex; align-items:center; gap:10px;">
@@ -1516,7 +1595,7 @@ const UI = {
           <span>${escapeHtml(videoName)}</span>
           ${hasCaption ? '<span class="status-badge" style="background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #444; margin-left:8px;"><i class="ph ph-text-align-left"></i> Caption</span>' : ''}
         </div>
-        <span class="status-badge active">Pending</span>
+        <span class="status-badge ${reviewClass}">${reviewLabel}</span>
       </div>
     `;
         })
@@ -1608,6 +1687,9 @@ const UI = {
         .map((video) => {
           const videoName = typeof video === "string" ? video : video.name;
           const hasCaption = typeof video === "object" && video.hasCaption;
+          const reviewStatus = typeof video === "object" ? (video.reviewStatus || "pending_review") : "pending_review";
+          const reviewLabel = reviewStatus === "approved" ? "Approved" : reviewStatus === "rejected" ? "Rejected" : "Needs review";
+          const reviewClass = reviewStatus === "approved" ? "success" : "active";
           return `
       <div class="queue-item">
         <div style="display:flex; align-items:center; gap:10px;">
@@ -1615,7 +1697,7 @@ const UI = {
           <span>${escapeHtml(videoName)}</span>
           ${hasCaption ? '<span class="status-badge" style="background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #444; margin-left:8px;"><i class="ph ph-text-align-left"></i> Caption</span>' : ''}
         </div>
-        <span class="status-badge active">Pending</span>
+        <span class="status-badge ${reviewClass}">${reviewLabel}</span>
       </div>
     `;
         })
@@ -1680,6 +1762,9 @@ const UI = {
         .map((video) => {
           const videoName = typeof video === "string" ? video : video.name;
           const hasCaption = typeof video === "object" && video.hasCaption;
+          const reviewStatus = typeof video === "object" ? (video.reviewStatus || "pending_review") : "pending_review";
+          const reviewLabel = reviewStatus === "approved" ? "Approved" : reviewStatus === "rejected" ? "Rejected" : "Needs review";
+          const reviewClass = reviewStatus === "approved" ? "success" : "active";
           return `
       <div class="queue-item">
         <div style="display:flex; align-items:center; gap:10px;">
@@ -1687,7 +1772,7 @@ const UI = {
           <span>${escapeHtml(videoName)}</span>
           ${hasCaption ? '<span class="status-badge" style="background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #444; margin-left:8px;"><i class="ph ph-text-align-left"></i> Caption</span>' : ''}
         </div>
-        <span class="status-badge active">Pending</span>
+        <span class="status-badge ${reviewClass}">${reviewLabel}</span>
       </div>
     `;
         })
@@ -1994,7 +2079,225 @@ const UI = {
       )
       .join("");
     this.updateLogContainer(this.els.pdLogsContainer, logsHtml);
-  }
+  },
+
+  async refreshSettingsPanel() {
+    try {
+      const [settingsRes, rateRes] = await Promise.all([
+        API.get("/api/settings"),
+        API.get("/api/rate-limits"),
+      ]);
+      const settings = settingsRes.settings || {};
+      if (this.els.requireReviewToggle && document.activeElement !== this.els.requireReviewToggle) {
+        this.els.requireReviewToggle.checked = Boolean(settings.REQUIRE_REVIEW_APPROVAL);
+      }
+      const map = [
+        ["tiktokDailyCapInput", "TIKTOK_DAILY_CAP"],
+        ["tiktokCooldownInput", "TIKTOK_COOLDOWN_MINUTES"],
+        ["instagramDailyCapInput", "INSTAGRAM_DAILY_CAP"],
+        ["instagramCooldownInput", "INSTAGRAM_COOLDOWN_MINUTES"],
+        ["youtubeDailyCapInput", "YOUTUBE_DAILY_CAP"],
+        ["youtubeCooldownInput", "YOUTUBE_COOLDOWN_MINUTES"],
+      ];
+      for (const [elKey, settingKey] of map) {
+        const el = this.els[elKey];
+        if (el && document.activeElement !== el) {
+          el.value = settings[settingKey] ?? "";
+        }
+      }
+      if (this.els.rateLimitStatus) {
+        const lines = (rateRes.status || []).map((item) => {
+          return `${item.platform}: ${item.usedToday}/${item.dailyCap} today, cooldown ${item.cooldownMinutes}m` +
+            (item.canPost ? "" : ` (${item.reason || "blocked"})`);
+        });
+        this.els.rateLimitStatus.textContent = lines.join(" | ");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  },
+
+  async handleSaveRateLimits() {
+    try {
+      const payload = {
+        TIKTOK_DAILY_CAP: this.els.tiktokDailyCapInput?.value || "4",
+        TIKTOK_COOLDOWN_MINUTES: this.els.tiktokCooldownInput?.value || "180",
+        INSTAGRAM_DAILY_CAP: this.els.instagramDailyCapInput?.value || "4",
+        INSTAGRAM_COOLDOWN_MINUTES: this.els.instagramCooldownInput?.value || "180",
+        YOUTUBE_DAILY_CAP: this.els.youtubeDailyCapInput?.value || "3",
+        YOUTUBE_COOLDOWN_MINUTES: this.els.youtubeCooldownInput?.value || "240",
+      };
+      const result = await API.post("/api/settings/save", { payload });
+      if (result?.ok === false && result?.error) throw new Error(result.error);
+      if (this.els.rateLimitSaveBtn) {
+        this.els.rateLimitSaveBtn.innerHTML = '<i class="ph ph-check"></i> Saved!';
+        setTimeout(() => {
+          this.els.rateLimitSaveBtn.innerHTML = '<i class="ph ph-floppy-disk"></i> Save Caps';
+        }, 2000);
+      }
+      this.refreshSettingsPanel();
+      this.refresh();
+    } catch (err) {
+      alert(`Could not save rate limits: ${err.message}`);
+    }
+  },
+
+  async refreshReviewQueue() {
+    if (!this.els.reviewQueueList) return;
+    try {
+      const data = await API.get("/api/review/queue");
+      if (this.els.reviewPendingCount) {
+        this.els.reviewPendingCount.textContent = data.counts?.pending_review ?? 0;
+      }
+      if (this.els.reviewApprovedCount) {
+        this.els.reviewApprovedCount.textContent = data.counts?.approved ?? 0;
+      }
+      const items = data.items || [];
+      this.els.reviewQueueList.innerHTML = items.length
+        ? items
+            .map((item) => {
+              const statusLabel =
+                item.status === "approved"
+                  ? "Approved"
+                  : item.status === "rejected"
+                    ? "Rejected"
+                    : "Pending review";
+              return `
+          <div class="queue-item" style="flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px; flex:1;">
+              <i class="ph ph-file-video" style="font-size:20px;"></i>
+              <div>
+                <div>${escapeHtml(item.name)}</div>
+                <div style="font-size:12px; color:var(--text-muted);">${escapeHtml(item.platform)} | ${statusLabel}</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="control-btn-small success" data-review-action="approve" data-video-path="${escapeHtml(item.videoPath)}" data-platform="${escapeHtml(item.platform)}">Approve</button>
+              <button class="control-btn-small danger" data-review-action="reject" data-video-path="${escapeHtml(item.videoPath)}" data-platform="${escapeHtml(item.platform)}">Reject</button>
+              <button class="control-btn-small primary" data-review-action="approve-and-post" data-video-path="${escapeHtml(item.videoPath)}" data-platform="${escapeHtml(item.platform)}">Approve &amp; Post Now</button>
+            </div>
+          </div>`;
+            })
+            .join("")
+        : '<div style="text-align:center; padding:20px; color:#666;">No pending videos in review queue</div>';
+    } catch (err) {
+      this.els.reviewQueueList.innerHTML = `<div style="color:var(--danger); padding:12px;">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  async handleReviewActionClick(event) {
+    const btn = event.target.closest("[data-review-action]");
+    if (!btn) return;
+    const action = btn.getAttribute("data-review-action");
+    const videoPath = btn.getAttribute("data-video-path");
+    const platform = btn.getAttribute("data-platform");
+    try {
+      let result;
+      if (action === "approve") {
+        result = await API.post("/api/review/approve", { videoPath, platform });
+      } else if (action === "reject") {
+        result = await API.post("/api/review/reject", { videoPath, platform });
+      } else if (action === "approve-and-post") {
+        result = await API.post("/api/review/approve-and-post", { videoPath, platform });
+      }
+      if (result?.ok === false && result?.error) throw new Error(result.error);
+      if (result?.skipped && result?.reason) alert(result.reason);
+      await this.refreshReviewQueue();
+      this.refresh();
+    } catch (err) {
+      alert(`Review action failed: ${err.message}`);
+    }
+  },
+
+  async refreshTemplates() {
+    if (!this.els.templatesList) return;
+    try {
+      const data = await API.get("/api/templates");
+      const templates = data.templates || [];
+      const accountId = this.activeAccountId || "default";
+      const currentDefault = (data.accountDefaults || {})[accountId] || "";
+      if (this.els.accountDefaultTemplateSelect) {
+        this.els.accountDefaultTemplateSelect.innerHTML =
+          `<option value="">None</option>` +
+          templates
+            .map(
+              (tpl) =>
+                `<option value="${escapeHtml(tpl.id)}" ${tpl.id === currentDefault ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`
+            )
+            .join("");
+      }
+      this.els.templatesList.innerHTML = templates
+        .map((tpl) => {
+          return `
+          <div class="queue-item" style="cursor:pointer;" data-template-id="${escapeHtml(tpl.id)}">
+            <div>
+              <div style="font-weight:600;">${escapeHtml(tpl.name)} ${tpl.builtin ? '<span class="status-badge active">Built-in</span>' : ""}</div>
+              <div style="font-size:12px; color:var(--text-muted);">${escapeHtml(tpl.campaign)} | ${escapeHtml(tpl.id)}</div>
+              <div style="font-size:12px; margin-top:6px;">${escapeHtml(tpl.body)}</div>
+            </div>
+          </div>`;
+        })
+        .join("");
+      this._templatesCache = templates;
+    } catch (err) {
+      this.els.templatesList.innerHTML = `<div style="color:var(--danger); padding:12px;">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  handleTemplatePickClick(event) {
+    const row = event.target.closest("[data-template-id]");
+    if (!row) return;
+    const id = row.getAttribute("data-template-id");
+    const tpl = (this._templatesCache || []).find((item) => item.id === id);
+    if (!tpl) return;
+    if (this.els.templateIdInput) this.els.templateIdInput.value = tpl.id;
+    if (this.els.templateNameInput) this.els.templateNameInput.value = tpl.name;
+    if (this.els.templateCampaignInput) this.els.templateCampaignInput.value = tpl.campaign || "custom";
+    if (this.els.templateBodyInput) this.els.templateBodyInput.value = tpl.body || "";
+  },
+
+  async handleTemplateSave() {
+    try {
+      const result = await API.post("/api/templates/save", {
+        id: this.els.templateIdInput?.value || "",
+        name: this.els.templateNameInput?.value || "",
+        campaign: this.els.templateCampaignInput?.value || "custom",
+        body: this.els.templateBodyInput?.value || "",
+      });
+      if (result?.ok === false && result?.error) throw new Error(result.error);
+      await this.refreshTemplates();
+    } catch (err) {
+      alert(`Template save failed: ${err.message}`);
+    }
+  },
+
+  async handleTemplateDelete() {
+    try {
+      const id = this.els.templateIdInput?.value || "";
+      if (!id) throw new Error("Select a template id first.");
+      const result = await API.post("/api/templates/delete", { id });
+      if (result?.ok === false && result?.error) throw new Error(result.error);
+      if (this.els.templateIdInput) this.els.templateIdInput.value = "";
+      if (this.els.templateNameInput) this.els.templateNameInput.value = "";
+      if (this.els.templateBodyInput) this.els.templateBodyInput.value = "";
+      await this.refreshTemplates();
+    } catch (err) {
+      alert(`Template delete failed: ${err.message}`);
+    }
+  },
+
+  async handleAccountDefaultTemplateSave() {
+    try {
+      const templateId = this.els.accountDefaultTemplateSelect?.value || "";
+      const result = await API.post("/api/templates/account-default", {
+        templateId: templateId || null,
+      });
+      if (result?.ok === false && result?.error) throw new Error(result.error);
+      await this.refreshTemplates();
+    } catch (err) {
+      alert(`Could not save account default template: ${err.message}`);
+    }
+  },
 };
 
 document.addEventListener("DOMContentLoaded", () => UI.init());

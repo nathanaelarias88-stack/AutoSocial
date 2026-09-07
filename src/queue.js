@@ -47,8 +47,18 @@ function pickNextVideo(videos) {
   return videos[0];
 }
 
-async function getNextQueuedItem(queueDir) {
-  const videos = await listQueueVideos(queueDir);
+async function getNextQueuedItem(queueDir, options = {}) {
+  const approvedOnly =
+    options.approvedOnly !== undefined
+      ? Boolean(options.approvedOnly)
+      : Boolean(config.requireReviewApproval);
+
+  let videos = await listQueueVideos(queueDir);
+  if (approvedOnly) {
+    const { filterApprovedVideos } = require("./review-queue");
+    videos = await filterApprovedVideos(videos);
+  }
+
   const videoPath = pickNextVideo(videos);
   if (!videoPath) {
     return null;

@@ -13,6 +13,20 @@ const { migrateQueueIfNeeded } = require("./migrate-queue");
 const { createDashboardRequestGuard } = require("./request-guard");
 const { buildSetupHealth, getAllowedSetupFolderPath } = require("./setup-health");
 const {
+  listReviewQueue,
+  approveVideo,
+  rejectVideo,
+  REVIEW_STATUSES,
+} = require("./review-queue");
+const {
+  listTemplates,
+  upsertTemplate,
+  deleteTemplate,
+  setAccountDefaultTemplate,
+  ensureTemplatesFile,
+} = require("./caption-templates");
+const { getAllRateLimitStatus } = require("./post-rate-limit");
+const {
   startDashboardLoginSession: startTikTokLoginSession,
   getLoginSessionStatus: getTikTokLoginSessionStatus,
   closeLoginSession: closeTikTokLoginSession,
@@ -34,6 +48,7 @@ const {
   getActiveAccount,
   getAllAccounts,
   ensureAccountDirs,
+  getAccountQueueDirs,
 } = require("./account-manager");
 
 function openFolder(folderPath) {
@@ -73,6 +88,14 @@ const SETTINGS_ENV_KEYS = new Set([
   "DEFAULT_CAPTION",
   "DEFAULT_SOUND_QUERY",
   "RANDOM_QUEUE_ORDER",
+  "REQUIRE_REVIEW_APPROVAL",
+  "TIKTOK_DAILY_CAP",
+  "INSTAGRAM_DAILY_CAP",
+  "YOUTUBE_DAILY_CAP",
+  "TIKTOK_COOLDOWN_MINUTES",
+  "INSTAGRAM_COOLDOWN_MINUTES",
+  "YOUTUBE_COOLDOWN_MINUTES",
+  "SESSION_STALE_DAYS",
 ]);
 
 function serializeEnvValue(value) {
@@ -92,6 +115,22 @@ function applyRuntimeSetting(envKey, value) {
     config.defaultSoundQuery = String(value ?? "");
   } else if (envKey === "RANDOM_QUEUE_ORDER") {
     config.randomQueueOrder = String(value).toLowerCase() === "true";
+  } else if (envKey === "REQUIRE_REVIEW_APPROVAL") {
+    config.requireReviewApproval = String(value).toLowerCase() === "true";
+  } else if (envKey === "TIKTOK_DAILY_CAP") {
+    config.postLimits.tiktok.dailyCap = Number(value);
+  } else if (envKey === "INSTAGRAM_DAILY_CAP") {
+    config.postLimits.instagram.dailyCap = Number(value);
+  } else if (envKey === "YOUTUBE_DAILY_CAP") {
+    config.postLimits.youtube.dailyCap = Number(value);
+  } else if (envKey === "TIKTOK_COOLDOWN_MINUTES") {
+    config.postLimits.tiktok.cooldownMinutes = Number(value);
+  } else if (envKey === "INSTAGRAM_COOLDOWN_MINUTES") {
+    config.postLimits.instagram.cooldownMinutes = Number(value);
+  } else if (envKey === "YOUTUBE_COOLDOWN_MINUTES") {
+    config.postLimits.youtube.cooldownMinutes = Number(value);
+  } else if (envKey === "SESSION_STALE_DAYS") {
+    config.sessionStaleDays = Number(value);
   }
 }
 
@@ -126,6 +165,7 @@ async function createServer() {
     config.uniquifyInputDir,
     config.uniquifyOutputDir,
   ]);
+  await ensureTemplatesFile();
 
   // Pre-initialize daemons for all existing accounts
   for (const acct of allAccounts) {
@@ -531,6 +571,159 @@ async function createServer() {
     } catch (error) {
       res.status(400).json({ ok: false, error: error.message });
     }
+  });
+
+
+  // Review queue endpoints
+
+  app.get("/api/review/queue", async (req, res) => {
+    try {
+      const active = await getActiveAccount();
+      const items = await listReviewQueue(active.id);
+      res.json({
+        ok: true,
+        accountId: active.id,
+        requireReviewApproval: config.requireReviewApproval,
+        items,
+        counts: {
+          pending_review: items.filter((i) => i.status === REVIEW_STATUSES.PENDING).length,
+          approved: items.filter((i) => i.status === REVIEW_STATUSES.APPROVED).length,
+          rejected: items.filter((i) => i.status === REVIEW_STATUSES.REJECTED).length,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/review/approve", async (req, res) => {
+    try {
+      const { videoPath, platform } = req.body || {};
+      if (!videoPath) {
+        return res.status(400).json({ ok: false, error: "Missing videoPath" });
+      }
+      const active = await getActiveAccount();
+      const entry = await approveVideo(videoPath, {
+        platform: platform || "",
+        accountId: active.id,
+      });
+      res.json({ ok: true, entry });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/review/reject", async (req, res) => {
+    try {
+      const { videoPath, platform } = req.body || {};
+      if (!videoPath) {
+        return res.status(400).json({ ok: false, error: "Missing videoPath" });
+      }
+      const active = await getActiveAccount();
+      const dirs = getAccountQueueDirs(active.id);
+      const platformKey = String(platform || "").toLowerCase();
+      const failedDir = dirs[platformKey]?.failed;
+      const entry = await rejectVideo(videoPath, {
+        failedDir,
+        extra: { platform: platformKey, accountId: active.id },
+      });
+      res.json({ ok: true, entry });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/review/approve-and-post", async (req, res) => {
+    try {
+      const { videoPath, platform } = req.body || {};
+      if (!videoPath || !platform) {
+        return res.status(400).json({ ok: false, error: "Missing videoPath or platform" });
+      }
+      const platformKey = String(platform).toLowerCase();
+      if (!["tiktok", "instagram", "youtube"].includes(platformKey)) {
+        return res.status(400).json({ ok: false, error: "Unsupported platform" });
+      }
+      const daemons = await getActiveDaemons();
+      const result = await daemons[platformKey].approveAndPostNow(videoPath);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  // Caption / campaign template endpoints
+
+  app.get("/api/templates", async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await listTemplates()) });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/templates/save", async (req, res) => {
+    try {
+      const template = await upsertTemplate(req.body || {});
+      res.json({ ok: true, template });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/templates/delete", async (req, res) => {
+    try {
+      const result = await deleteTemplate(req.body?.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/api/templates/account-default", async (req, res) => {
+    try {
+      const active = await getActiveAccount();
+      const accountId = req.body?.accountId || active.id;
+      const result = await setAccountDefaultTemplate(accountId, req.body?.templateId || null);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  // Rate limit status
+
+  app.get("/api/rate-limits", async (req, res) => {
+    try {
+      const active = await getActiveAccount();
+      res.json({
+        ok: true,
+        accountId: active.id,
+        limits: config.postLimits,
+        status: getAllRateLimitStatus(active.id),
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get("/api/settings", async (req, res) => {
+    res.json({
+      ok: true,
+      settings: {
+        AUTO_ADD_SOUND: config.autoAddSound,
+        DEFAULT_CAPTION: config.defaultCaption,
+        DEFAULT_SOUND_QUERY: config.defaultSoundQuery,
+        RANDOM_QUEUE_ORDER: config.randomQueueOrder,
+        REQUIRE_REVIEW_APPROVAL: config.requireReviewApproval,
+        TIKTOK_DAILY_CAP: config.postLimits.tiktok.dailyCap,
+        INSTAGRAM_DAILY_CAP: config.postLimits.instagram.dailyCap,
+        YOUTUBE_DAILY_CAP: config.postLimits.youtube.dailyCap,
+        TIKTOK_COOLDOWN_MINUTES: config.postLimits.tiktok.cooldownMinutes,
+        INSTAGRAM_COOLDOWN_MINUTES: config.postLimits.instagram.cooldownMinutes,
+        YOUTUBE_COOLDOWN_MINUTES: config.postLimits.youtube.cooldownMinutes,
+        SESSION_STALE_DAYS: config.sessionStaleDays,
+      },
+    });
   });
 
   // Uniquifier endpoints

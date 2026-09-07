@@ -55,3 +55,8 @@ queue/**/*.txt
 # Keep docs visible
 !README.md
 !SETUP.md
+
+# Local creator-ops data (review state, templates runtime)
+data/review-state.json
+data/caption-templates.json
+!data/.gitkeep

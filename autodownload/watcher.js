@@ -28,6 +28,7 @@ const {
     getAccountQueueDirs,
     ensureAccountDirs,
 } = require("../src/account-manager");
+const { resolveYtDlp } = require("../src/yt-dlp-resolver");
 
 const args = process.argv.slice(2);
 
@@ -46,7 +47,8 @@ const PLATFORMS = config.autoDownload.platforms;
 const ACCOUNT_ARG = getArg("account", process.env.ACCOUNT_ID || "");
 
 const BASE_DIR = __dirname;
-const YT_DLP = path.join(BASE_DIR, "yt-dlp.exe");
+const YT_DLP_RESOLVED = resolveYtDlp(path.resolve(__dirname, ".."));
+const YT_DLP = YT_DLP_RESOLVED.command || path.join(BASE_DIR, "yt-dlp.exe");
 const DOWNLOADS = path.join(BASE_DIR, "downloads");
 const ARCHIVE = path.join(BASE_DIR, "archive.txt");
 
@@ -57,6 +59,12 @@ const CHANNEL_URL = CHANNEL.startsWith("http")
 function log(msg) {
     const ts = new Date().toLocaleTimeString();
     console.log(`[${ts}] ${msg}`);
+}
+
+if (!YT_DLP_RESOLVED.found) {
+    console.error(YT_DLP_RESOLVED.detail);
+    console.error("Add autodownload/yt-dlp.exe (Windows) or install yt-dlp on PATH (Mac/Linux).");
+    process.exit(1);
 }
 
 function ensureDir(dir) {

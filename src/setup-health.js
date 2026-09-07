@@ -6,9 +6,11 @@ const {
   getActiveAccount,
   getAccountQueueDirs,
   getPlatformProfileDir,
-  hasSavedPlatformSession,
+  getPlatformSessionHealth,
   PLATFORMS,
 } = require("./account-manager");
+const { resolveYtDlp } = require("./yt-dlp-resolver");
+const { getAllRateLimitStatus } = require("./post-rate-limit");
 
 const PLATFORM_LABELS = {
   tiktok: "TikTok",
@@ -195,19 +197,14 @@ async function buildSetupHealth() {
     );
   }
 
-  const localYtDlp = path.join(config.projectRoot, "autodownload", "yt-dlp.exe");
-  const pathYtDlp = safeStat(localYtDlp)?.isFile() ? null : commandWorks("yt-dlp", ["--version"]);
+  const ytDlp = resolveYtDlp(config.projectRoot);
   checks.push(
     makeCheck(
       "yt-dlp",
       "yt-dlp",
-      safeStat(localYtDlp)?.isFile() || pathYtDlp?.ok ? "ok" : "warn",
-      safeStat(localYtDlp)?.isFile()
-        ? localYtDlp
-        : pathYtDlp?.ok
-          ? `PATH version ${pathYtDlp.output}`
-          : "Optional downloader dependency is missing",
-      "Add autodownload/yt-dlp.exe if you want downloader features."
+      ytDlp.found ? "ok" : "warn",
+      ytDlp.found ? ytDlp.detail : "Optional downloader dependency is missing",
+      "Add autodownload/yt-dlp.exe (Windows) or install yt-dlp on PATH (Mac/Linux)."
     )
   );
 
@@ -275,26 +272,31 @@ async function buildSetupHealth() {
 
   const sessions = [];
   for (const platform of PLATFORMS) {
-    const profileDir = await getPlatformProfileDir(platform, activeAccount.id);
-    const saved = await hasSavedPlatformSession(platform, activeAccount.id);
+    const health = await getPlatformSessionHealth(platform, activeAccount.id);
+    const checkStatus =
+      health.status === "ok" ? "ok" : health.status === "stale" ? "warn" : "warn";
     sessions.push({
       platform,
       label: PLATFORM_LABELS[platform],
-      saved,
-      profileDir,
-      action: saved ? "Session found" : "Open Accounts and start a login session.",
+      saved: health.saved,
+      healthy: health.healthy,
+      status: health.status,
+      profileDir: health.profileDir,
+      detail: health.detail,
+      action: health.action,
     });
     checks.push(
       makeCheck(
         `${platform}-session`,
         `${PLATFORM_LABELS[platform]} login session`,
-        saved ? "ok" : "warn",
-        saved ? "Saved browser session found" : "No saved session yet",
-        "Open Accounts and start a login session for this platform."
+        checkStatus,
+        health.detail,
+        health.action
       )
     );
   }
 
+  const rateLimits = getAllRateLimitStatus(activeAccount.id);
   const counts = countStatuses(checks);
   return {
     generatedAt: new Date().toISOString(),
@@ -305,11 +307,14 @@ async function buildSetupHealth() {
     checks,
     folders,
     sessions,
+    rateLimits,
+    requireReviewApproval: config.requireReviewApproval,
     nextSteps: [
       "Log in to each platform from Accounts.",
       "Drop videos into the pending folder for the platform you want to post to.",
+      "Approve videos in the Review Queue before scheduled posts can publish.",
       "Add an optional .description or .txt sidecar next to each video for captions.",
-      "Use Run Once for a safe first test before starting a scheduler.",
+      "Use Run Once or Approve and Post Now for a safe first test before starting a scheduler.",
     ],
   };
 }

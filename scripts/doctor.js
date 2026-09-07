@@ -6,6 +6,7 @@ const { spawnSync } = require("child_process");
 const projectRoot = path.resolve(__dirname, "..");
 const minimumNodeMajor = 18;
 const checks = [];
+const { resolveYtDlp } = require("../src/yt-dlp-resolver");
 
 function addCheck(name, status, detail) {
   checks.push({ name, status, detail });
@@ -91,19 +92,13 @@ function checkPlaywrightChromium() {
 }
 
 function checkYtDlp() {
-  const localExe = path.join(projectRoot, "autodownload", "yt-dlp.exe");
-  if (fs.existsSync(localExe)) {
-    addCheck("yt-dlp", "ok", localExe);
-    return;
-  }
-
-  const pathTool = commandWorks("yt-dlp", ["--version"]);
+  const resolved = resolveYtDlp(projectRoot);
   addCheck(
     "yt-dlp",
-    pathTool.ok ? "ok" : "warn",
-    pathTool.ok
-      ? `PATH version ${pathTool.output}`
-      : "optional; add autodownload/yt-dlp.exe for downloader features"
+    resolved.found ? "ok" : "warn",
+    resolved.found
+      ? resolved.detail
+      : "optional; add autodownload/yt-dlp.exe (Windows) or install yt-dlp on PATH (Mac/Linux)"
   );
 }
 

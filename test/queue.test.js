@@ -31,7 +31,7 @@ test("getNextQueuedItem reads .description before .txt sidecars", async () => {
   await fs.writeFile(path.join(dir, "clip.txt"), "txt caption");
   await fs.writeFile(path.join(dir, "clip.description"), "description caption");
 
-  const item = await getNextQueuedItem(dir);
+  const item = await getNextQueuedItem(dir, { approvedOnly: false });
 
   assert.equal(item.videoPath, videoPath);
   assert.equal(item.caption, "description caption");

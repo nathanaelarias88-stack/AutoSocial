@@ -12,6 +12,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { config } = require("./config");
 const { getActiveAccount, getAccountQueueDirs, ensureAccountDirs } = require("./account-manager");
+const { resolveYtDlp } = require("./yt-dlp-resolver");
 
 function nowIso() {
     return new Date().toISOString();
@@ -37,7 +38,7 @@ class AutoDownloadController {
         this._timer = null;
 
         this.baseDir = path.resolve(config.projectRoot, "autodownload");
-        this.ytDlp = path.join(this.baseDir, "yt-dlp.exe");
+        this.ytDlp = null;
         this.downloadsDir = path.join(this.baseDir, "downloads");
         this.archivePath = path.join(this.baseDir, "archive.txt");
         this.statePath = path.resolve(config.projectRoot, "autodownload-state.json");
@@ -217,8 +218,25 @@ class AutoDownloadController {
         }
     }
 
+    _resolveYtDlpCommand() {
+        const resolved = resolveYtDlp(config.projectRoot);
+        if (!resolved.found) {
+            throw new Error(resolved.detail);
+        }
+        this.ytDlp = resolved.command;
+        return resolved;
+    }
+
     _runYtDlp() {
         return new Promise((resolve) => {
+            let ytDlpCommand;
+            try {
+                ytDlpCommand = this._resolveYtDlpCommand().command;
+            } catch (err) {
+                this.log(err.message, "error");
+                return resolve([]);
+            }
+
             const dlArgs = [
                 "--no-warnings",
                 "--write-description",
@@ -239,7 +257,7 @@ class AutoDownloadController {
 
             this.log(`Checking ${this._channelUrl()} for new videos...`);
 
-            execFile(this.ytDlp, dlArgs, { timeout: 180_000 }, (err, stdout, stderr) => {
+            execFile(ytDlpCommand, dlArgs, { timeout: 180_000 }, (err, stdout, stderr) => {
                 if (stdout) {
                     const lines = stdout.trim().split("\n");
                     lines.forEach((line) => this.log(`  yt-dlp: ${line}`));
